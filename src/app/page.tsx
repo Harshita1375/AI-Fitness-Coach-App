@@ -11,7 +11,6 @@ import { Loader2, Zap, Volume2, Image, Save } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { motion } from 'framer-motion';
 
-// Types
 interface UserDetails {
   name: string;
   age: number;
@@ -30,7 +29,6 @@ interface Plan {
   ai_tips: string;
 }
 
-// Modal for generated images
 const ImageModal = ({ src, onClose }: { src: string; onClose: () => void }) => {
     if (!src) return null;
     return (
@@ -67,7 +65,6 @@ export default function FitnessPlannerApp() {
     },
   });
 
-  // --- Generate Plan ---
   const onSubmit = async (data: UserDetails) => {
     setIsLoading(true);
     setPlan(null);
@@ -91,7 +88,6 @@ export default function FitnessPlannerApp() {
     }
   };
 
-  // --- Text-to-Speech ---
   const handleReadPlan = useCallback(async (section: keyof Plan) => {
     if (!plan) return;
 
@@ -135,7 +131,6 @@ export default function FitnessPlannerApp() {
     }
   }, [plan, currentAudio, isReading]);
 
-  // --- Image Generation ---
   const handleGenerateImage = async (item: string, type: 'workout' | 'food') => {
     try {
       const response = await fetch('/api/generate-image', {
@@ -155,63 +150,59 @@ export default function FitnessPlannerApp() {
     }
   };
 
-  // --- Markdown Renderer with selective clickable exercises ---
-  // Corrected PlanRenderer component
-const PlanRenderer = ({ content, type }: { content: string, type: 'workout' | 'food' }) => {
-    // Define all exercise names (you can expand this list)
-    const exercises = [
-      "Barbell Bench Press",
-      "Incline Dumbbell Press",
-      "Shoulder Press",
-      "Squat",
-      "Deadlift",
-      "Pull-up",
-      "Bicep Curl",
-      "Tricep Extension"
-    ];
+// src/app/page.tsx
 
-    return (
-      <div className="markdown-body">
-        <ReactMarkdown
-          components={{
-            text: ({ node, children }) => {
-              // 🎯 FIX: Safely check if children is an array and if the first element is a string.
-              // In this context, children will be an array containing a single string node.
-              const textContent = Array.isArray(children) && typeof children[0] === 'string' ? children[0] : '';
-              
-              if (!textContent) return <>{children}</>;
+// ... (code above the PlanRenderer component definition)
 
-              // Split by exercise names and make only exercise names clickable
-              const parts = textContent.split(new RegExp(`(${exercises.join('|')})`, 'g'));
+// --- Markdown Renderer with selective clickable exercises ---
+  const PlanRenderer = ({ content, type }: { content: string, type: 'workout' | 'food' }) => {
+      // 🎯 Note on LLM Output: For this to work reliably, the LLM must be instructed 
+      // to wrap exercise/meal names in a markdown link format, e.g., [Barbell Squat](Barbell Squat).
+      // The code below turns those links into clickable buttons.
+
+      return (
+        <div className="markdown-body">
+          <ReactMarkdown
+            components={{
+              // Overrides standard markdown links (<a> tags)
+              a: ({ node, children, ...props }) => {
+                  const itemText = children[0] as string;
+                  if (!itemText) return <>{children}</>;
+
+                  // We assume any link here represents a clickable item (exercise or food)
+                  return (
+                      <Button
+                          variant="link"
+                          size="sm"
+                          // Pass the visible text of the link to the image handler
+                          onClick={() => handleGenerateImage(itemText, type)}
+                          className="p-0 h-auto text-blue-600 dark:text-blue-400"
+                          title={`Click to view image of ${itemText}`}
+                          {...props} // Spread any remaining props (like href) if needed
+                      >
+                          {itemText} <Image size={16} className="ml-1 inline-block" />
+                      </Button>
+                  );
+              },
               
-              return (
-                <>
-                  {parts.map((part, idx) => exercises.includes(part.trim()) ? (
-                    <Button
-                      key={idx}
-                      variant="link"
-                      size="sm"
-                      onClick={() => handleGenerateImage(part.trim(), type)}
-                      className="p-0 h-auto text-blue-600 dark:text-blue-400"
-                    >
-                      {part} <Image size={16} className="ml-1" />
-                    </Button>
-                  ) : (
-                    <span key={idx}>{part}</span>
-                  ))}
-                </>
-              );
-            },
-            table: ({ children }) => <table className="w-full text-left border-collapse my-4">{children}</table>,
-            th: ({ children }) => <th className="border-b-2 p-2">{children}</th>,
-            td: ({ children }) => <td className="border-b p-2">{children}</td>,
-          }}
-        >
-          {content}
-        </ReactMarkdown>
-      </div>
-    );
-  };
+              // Standard table formatting for markdown output (essential for tables)
+              table: ({ children }) => <table className="w-full text-left border-collapse my-4">{children}</table>,
+              th: ({ children }) => <th className="border-b-2 p-2">{children}</th>,
+              td: ({ children }) => <td className="border-b p-2">{children}</td>,
+              
+              // HACK FIX for LLM Output: If the LLM output is not rendering correctly (e.g., showing boxes), 
+              // override the text component to use a basic span, or try to decode the text. 
+              // For now, removing the complex text override is the best fix. 
+              
+            }}
+          >
+            {content}
+          </ReactMarkdown>
+        </div>
+      );
+    };
+  
+// ... (rest of the page.tsx file)
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8">
@@ -229,7 +220,6 @@ const PlanRenderer = ({ content, type }: { content: string, type: 'workout' | 'f
       </motion.header>
 
       <div className="max-w-6xl mx-auto grid lg:grid-cols-3 gap-8">
-        {/* Input Form */}
         <Card className="lg:col-span-1 shadow-lg h-fit sticky top-8">
           <CardHeader>
             <CardTitle>Your Details</CardTitle>
@@ -299,13 +289,11 @@ const PlanRenderer = ({ content, type }: { content: string, type: 'workout' | 'f
           </CardContent>
         </Card>
 
-        {/* Output */}
         <div className="lg:col-span-2 space-y-8">
           {plan ? (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
               <h2 className="text-3xl font-semibold mb-4 text-gray-800 dark:text-gray-100">Your Custom Plan</h2>
               
-              {/* AI Tips */}
               <Card className="mb-8 border-indigo-500 border-l-4">
                 <CardHeader>
                   <CardTitle className="text-indigo-600 dark:text-indigo-400">AI Tips & Motivation</CardTitle>
@@ -315,7 +303,6 @@ const PlanRenderer = ({ content, type }: { content: string, type: 'workout' | 'f
                 </CardContent>
               </Card>
 
-              {/* Workout Plan */}
               <Card className="mb-8">
                 <CardHeader>
                   <CardTitle className="flex items-center justify-between">
@@ -337,7 +324,6 @@ const PlanRenderer = ({ content, type }: { content: string, type: 'workout' | 'f
                 </CardContent>
               </Card>
 
-              {/* Diet Plan */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center justify-between">
