@@ -1,4 +1,3 @@
-// app/api/read-plan/route.ts
 import { ElevenLabsClient } from "elevenlabs";
 import { NextResponse } from "next/server";
 
@@ -16,17 +15,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ message: "No text provided" }, { status: 400 });
     }
 
-    // Call API (no second argument)
     const audioStream = await elevenlabs.textToSpeech.convert(
-      voiceId, // 1st arg
+      voiceId, 
       {
         text,
         model_id: "eleven_multilingual_v2",
-      }, // 2nd arg
-      {} // 3rd arg (optional)
+      }, 
+      {} 
     );
 
-    // Convert Node Readable stream → Buffer
     const chunks: Buffer[] = [];
     for await (const chunk of audioStream) {
       chunks.push(Buffer.from(chunk));
