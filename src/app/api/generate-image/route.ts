@@ -1,76 +1,57 @@
-// src/app/api/generate-image/route.ts
-
-import { GoogleGenAI, GenerateContentResponse } from '@google/genai';
-import { NextResponse } from 'next/server';
-
-const ai = new GoogleGenAI({}); 
+import { NextResponse } from "next/server";
+import { GoogleGenAI } from "@google/genai";
 
 export async function POST(req: Request) {
   try {
     const { item, type } = await req.json();
 
-    let basePrompt = "";
-    if (type === 'workout') {
-      basePrompt = `Photorealistic, high-detail image of a person performing the ${item} exercise with proper form. Clean, minimalist gym background.`;
-    } else if (type === 'food') {
-      basePrompt = `High-quality, professional food photography of freshly prepared ${item}. Appetizing presentation, realistic lighting, soft bokeh background.`;
-    } else {
-      return NextResponse.json({ success: false, message: "Invalid type" }, { status: 400 });
+    if (!item || !type) {
+      return NextResponse.json({ error: "Missing item or type" }, { status: 400 });
     }
 
-    const response: GenerateContentResponse = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image', 
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({ error: "Gemini API key missing" }, { status: 500 });
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+
+    const prompt = `
+      Create a clear, high-resolution ${type === "workout" ? "exercise" : "food"} image:
+      "${item}"
+      - Clean background
+      - Focus on the subject
+    `;
+
+    const result = await ai.models.generateContent({
+      model: "gemini-2.5-flash-image",
       contents: [
-        { role: "user", parts: [{ text: basePrompt }] }
-      ],
-      config: {
-        responseModalities: ["IMAGE"], 
-        imageConfig: { 
-          aspectRatio: '1:1',
+        {
+          text: prompt, 
         },
-      },
+      ],
     });
 
-    // START OF TS FIXES: Safely extract the first candidate and its content
-    const firstCandidate = response.candidates?.[0];
+    const candidate = result.candidates?.[0];
 
-    // Explicit check for both candidate and its content to satisfy TypeScript
-    if (!firstCandidate || !firstCandidate.content) {
-      const finishReason = response.candidates?.[0]?.finishReason;
-      throw new Error(`Image generation failed. Finish Reason: ${finishReason || "No candidate content found."}`);
+    if (!candidate || !candidate.content?.parts) {
+      return NextResponse.json({ error: "No image content returned" }, { status: 500 });
     }
-    
-    // CORRECT RESPONSE PARSING: Find the image part within the contents
-    // TypeScript is now satisfied because we checked 'firstCandidate.content' above.
-    const imagePart = firstCandidate.content.parts.find(
-      (part: any) => part.inlineData && part.inlineData.mimeType.startsWith('image/')
+
+    const imagePart = candidate.content.parts.find(
+      (p) => p.inlineData && p.inlineData.mimeType?.startsWith("image/")
     );
 
-    const imageBytes: string | undefined = imagePart?.inlineData?.data; 
-    const mimeType: string = imagePart?.inlineData?.mimeType || 'image/jpeg';
-
-    if (!imageBytes) {
-      throw new Error("No image data found in the response. Generation may have been blocked.");
+    if (!imagePart || !imagePart.inlineData?.data) {
+      return NextResponse.json({ error: "No image part found" }, { status: 500 });
     }
 
-    const imageUrl = `data:${mimeType};base64,${imageBytes}`;
+    const base64 = imagePart.inlineData.data;
+    const imageUrl = `data:${imagePart.inlineData.mimeType};base64,${base64}`;
 
-    return NextResponse.json({ success: true, imageUrl });
-
-  } catch (err: any) {
-    const status = err.status || 500;
-    let message = "Failed to generate image due to an internal server error.";
-
-    if (status === 429) {
-      message = "Quota Exceeded (429). Please wait for your quota to reset or enable billing.";
-    } else {
-      message = err.message || message;
-    }
-    
-    console.error("Image generation error:", err);
-    return NextResponse.json(
-      { success: false, message: message },
-      { status: status }
-    );
+    return NextResponse.json({ imageUrl });
+  } catch (error) {
+    console.error("IMAGE API ERROR:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
