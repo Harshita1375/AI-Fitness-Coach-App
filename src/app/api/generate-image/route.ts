@@ -1,4 +1,3 @@
-// app/api/generate-image/route.ts
 import { GoogleGenAI } from '@google/genai';
 import { NextResponse } from 'next/server';
 
@@ -7,47 +6,47 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 export async function POST(req: Request) {
   try {
     const { item, type } = await req.json();
-    
+
     let basePrompt = "";
+
     if (type === 'workout') {
-      basePrompt = `Photorealistic image of a person performing a perfect ${item}. Focus on correct form, clarity, and visible muscle engagement.`;
+      basePrompt = `Photorealistic image of a person performing a proper ${item}. 
+      Show correct form, muscle engagement, clean background, high detail, realistic lighting.`;
     } else if (type === 'food') {
-      basePrompt = `High-quality food photography of freshly prepared ${item}. Bright, clean, visually appealing presentation.`;
+      basePrompt = `High-quality food photography of freshly prepared ${item}. 
+      Professional lighting, clean background, appetizing presentation.`;
     } else {
-      return NextResponse.json({ message: 'Invalid type provided.' }, { status: 400 });
+      return NextResponse.json({ success: false, message: "Invalid type" }, { status: 400 });
     }
 
+    // ⭐ Correct API for your SDK version:
     const response = await ai.models.generateImages({
-      model: 'imagen-2.5-generate-002',
+      model: 'imagen-4.0-generate-002', // updated model
       prompt: basePrompt,
       config: {
         numberOfImages: 1,
         aspectRatio: '1:1',
-        outputMimeType: 'image/jpeg'
-      }
+        outputMimeType: 'image/jpeg',
+      },
     });
 
-    // SAFE: Ensure images exist
-    if (
-        !response.generatedImages ||
-        response.generatedImages.length === 0 ||
-        !response.generatedImages[0].image ||
-        !response.generatedImages[0].image.imageBytes
-        ) {
-        throw new Error("No images were generated.");
-        }
+    // ⭐ Correct response reading for OLD Gemini SDK:
+    const imageBytes =
+      response?.generatedImages?.[0]?.image?.imageBytes;
 
-    const imageBase64 = response.generatedImages[0].image.imageBytes;
+    if (!imageBytes) {
+      throw new Error("No image bytes returned from Gemini");
+    }
 
-   
-    const imageUrl = `data:image/jpeg;base64,${imageBase64}`;
+    // Base64 → img src
+    const imageUrl = `data:image/jpeg;base64,${imageBytes}`;
 
     return NextResponse.json({ success: true, imageUrl });
 
-  } catch (error) {
-    console.error("Image Generation Error:", error);
+  } catch (err) {
+    console.error("Image generation error:", err);
     return NextResponse.json(
-      { success: false, message: 'Failed to generate image.' },
+      { success: false, message: "Failed to generate image." },
       { status: 500 }
     );
   }
