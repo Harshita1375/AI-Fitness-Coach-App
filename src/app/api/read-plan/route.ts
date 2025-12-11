@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import ElevenLabs from "@elevenlabs/elevenlabs-js";
+import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 
 export async function POST(req: Request) {
   try {
@@ -14,9 +14,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "ElevenLabs API key missing" }, { status: 500 });
     }
 
-    const client = new ElevenLabs({ apiKey });
+    const client = new ElevenLabsClient({ apiKey });
 
-    const voiceId = "21m00Tcm4TlvDq8ikWAM";
+    const voiceId = "21m00Tcm4TlvDq8ikWAM"; // default voice
 
     const audio = await client.textToSpeech.convert(voiceId, {
       text,
@@ -28,9 +28,7 @@ export async function POST(req: Request) {
 
     const audioArrayBuffer = await audio.arrayBuffer();
     return new Response(audioArrayBuffer, {
-      headers: {
-        "Content-Type": "audio/mpeg",
-      },
+      headers: { "Content-Type": "audio/mpeg" },
     });
   } catch (error) {
     console.error("TTS ERROR:", error);
