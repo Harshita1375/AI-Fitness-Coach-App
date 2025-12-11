@@ -1,8 +1,10 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import { NextResponse } from 'next/server';
 
+// Initialize the Google Gen AI client
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
+// --- INTERFACES (Unchanged) ---
 interface UserDetails {
   name: string;
   age: number;
@@ -21,61 +23,53 @@ interface PlanResponse {
   ai_tips: string;
 }
 
-/**
- * Helper: try to parse JSON safely.
- * If direct JSON.parse fails, try to extract first {...} JSON-like substring.
- */
-function safeParseJson(text: string): any | null {
-  try {
-    return JSON.parse(text);
-  } catch (e) {
-    // try to extract a JSON object from the text
-    const match = text.match(/\{[\s\S]*\}/);
-    if (match) {
-      try {
-        return JSON.parse(match[0]);
-      } catch (e2) {
-        return null;
-      }
-    }
-    return null;
-  }
-}
+// --- API ROUTE HANDLER ---
+// ... existing imports and interfaces ...
 
+// --- API ROUTE HANDLER ---
 export async function POST(req: Request) {
   try {
     const details: UserDetails = await req.json();
 
-    // Strong instruction: model MUST return a single JSON object (no extra commentary)
-    // with keys: workout_plan_markdown, diet_plan_markdown, ai_tips.
-    // Each table MUST be valid GitHub Markdown table and every exercise / meal MUST be a markdown link.
-    // Example row: | Day 1 | [Push Ups](#) | 4 | 8-12 | 60s |
+    // 1. Define the Strict Output Schema
+    const planSchema = {
+      type: Type.OBJECT,
+      properties: {
+        workout_plan_markdown: {
+          type: Type.STRING,
+          // *** FIX APPLIED HERE ***
+          description: `A 7-day fitness plan using GitHub-flavored Markdown. 
+            
+            1. **STRUCTURE:** Group the exercises by day using Markdown level-4 headings (e.g., '#### Day 1: Full Body').
+            2. **TABLES:** Directly following each heading, output a clean Markdown table with headers: 
+               | Exercise | Sets | Reps | Rest | 
+               and the required alignment row: 
+               | :--- | :--- | :--- | :--- |.
+            3. **LINKS:** Each exercise NAME MUST be a Markdown link using the link target '#' (e.g., [Push Ups](#)).
+            
+            Do NOT include the word 'Day' inside the table rows, only in the heading.`,
+        },
+        // ... diet_plan_markdown and ai_tips remain the same ...
+        diet_plan_markdown: {
+          type: Type.STRING,
+          description: "A 7-day diet plan using GitHub-flavored Markdown. Group meals by day using Markdown headings (e.g., '#### Day 1: Meal Plan'). Each meal name MUST be a Markdown link using the link target '#' (e.g., [Oats with Banana](#)). Table headers: | Meal | Time | Portion/Notes |",
+        },
+        ai_tips: {
+          type: Type.STRING,
+          description: "Provide short, focused tips (maximum 3 points). Use Markdown numbered lists (1., 2., 3.) or standard bullet points (*) for clean vertical separation. Bold the main topic of each tip using double asterisks (**). Do NOT include any initial greetings or introductory phrases.",
+        },
+      },
+      required: ['workout_plan_markdown', 'diet_plan_markdown', 'ai_tips'],
+    };
+
+    // ... rest of the POST function remains the same ...
     const prompt = `
-You are an expert AI Fitness Coach. Based on the user details below, return a SINGLE JSON object and NOTHING ELSE.
-The JSON object must have these exact keys:
-{
-  "workout_plan_markdown": "<markdown table string>",
-  "diet_plan_markdown": "<markdown table string>",
-  "ai_tips": "<short plaintext tips>"
-}
+Generate a comprehensive 7-day fitness and diet plan based on the user's details.
 
-REQUIREMENTS (very strict):
-1) workout_plan_markdown: A 7-day **GitHub-flavored Markdown** table with headers:
-   | Day | Exercise | Sets | Reps | Rest |
-   Each exercise NAME MUST be a markdown link. Use the link target '#' (hash). Example:
-   | Day 1 | [Push Ups](#) | 4 | 8-12 | 60s |
-   Ensure every row has exactly 5 columns separated by pipes, and include the header + separator row.
+**Crucial Formatting Instruction:**
+For both the workout and diet plans, **GROUP THE CONTENT BY DAY** using Markdown level-4 headings (####) before the respective table for superior readability.
 
-2) diet_plan_markdown: A 7-day **GitHub-flavored Markdown** table with headers:
-   | Day | Meal | Time | Portion/Notes |
-   Each meal / snack MUST be a markdown link. Use '#' as the link target. Example:
-   | Day 1 | [Oats with Banana](#) | Breakfast | 1 bowl |
-
-3) ai_tips: Short, focused plaintext (no markdown tables), max 3 short paragraphs (or bullet points) with personalization based on the user's details.
-
-IMPORTANT: Return ONLY valid JSON (no explanation, no disclaimers, no extra text). Make sure all markdown table pipes and link formats are correct. Use the user's details below to personalize sets/reps and meal suggestions.
-
-User details:
+**User Details:**
 Name: ${details.name}
 Age: ${details.age}
 Gender: ${details.gender}
@@ -85,66 +79,51 @@ Goal: ${details.fitnessGoal}
 Level: ${details.fitnessLevel}
 Location: ${details.workoutLocation}
 Diet: ${details.dietaryPreferences}
-
-Output example (must follow exactly):
-{
-  "workout_plan_markdown": "| Day | Exercise | Sets | Reps | Rest |\n| --- | --- | --- | --- | --- |\n| Day 1 | [Push Ups](#) | 4 | 8-12 | 60s | ... (and so on for 7 days)",
-  "diet_plan_markdown": "| Day | Meal | Time | Portion/Notes |\n| --- | --- | --- | --- |\n| Day 1 | [Oats with Banana](#) | Breakfast | 1 bowl | ... (and so on for 7 days)",
-  "ai_tips": "Short tips here..."
-}
 `;
+    // ... rest of the API call and JSON parsing ...
 
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
-      // model may return JSON text; request plain/text or application/json depending on model behavior.
-      // We accept either but will parse robustly below.
       contents: prompt,
       config: {
-        // It's OK to request JSON, but model sometimes returns extra text — we handle that.
         responseMimeType: "application/json",
+        responseSchema: planSchema,
       },
     });
 
+    // ... JSON parsing and return response ...
     const rawText = (response as any).text ?? '';
+    
     if (!rawText || typeof rawText !== 'string') {
       return NextResponse.json({ success: false, message: 'Empty AI response' }, { status: 500 });
     }
 
-    // Try to parse safely (direct JSON.parse or extract JSON substring)
-    const parsed = safeParseJson(rawText);
-    if (!parsed) {
-      // return debug info to help in dev; in production you might log and return a cleaner message.
-      console.error('AI raw response (unparsable):', rawText);
+    const parsed: PlanResponse = JSON.parse(rawText);
+
+    // Validation
+    if (!parsed.workout_plan_markdown || !parsed.diet_plan_markdown) {
+      console.error('Missing required markdown fields in response:', { parsed });
       return NextResponse.json(
-        { success: false, message: 'AI returned unparsable output', debug: rawText.slice(0, 200) },
+        { success: false, message: 'AI did not return required plan fields.', debug: parsed },
         { status: 500 }
       );
     }
 
-    // Ensure the required keys exist and are strings
-    const workout_markdown =
-      typeof parsed.workout_plan_markdown === 'string' ? parsed.workout_plan_markdown.trim() : '';
-    const diet_markdown =
-      typeof parsed.diet_plan_markdown === 'string' ? parsed.diet_plan_markdown.trim() : '';
-    const ai_tips = typeof parsed.ai_tips === 'string' ? parsed.ai_tips.trim() : '';
-
-    if (!workout_markdown || !diet_markdown) {
-      console.error('Missing markdown in parsed response:', { parsed });
-      return NextResponse.json(
-        { success: false, message: 'AI did not return required markdown fields', debug: parsed },
-        { status: 500 }
-      );
-    }
-
-    const plan: PlanResponse = {
-      workout_plan_markdown: workout_markdown,
-      diet_plan_markdown: diet_markdown,
-      ai_tips,
+    // Trim content for cleanliness
+    const finalPlan: PlanResponse = {
+      workout_plan_markdown: parsed.workout_plan_markdown.trim(),
+      diet_plan_markdown: parsed.diet_plan_markdown.trim(),
+      ai_tips: parsed.ai_tips.trim(),
     };
 
-    return NextResponse.json({ success: true, plan });
+    return NextResponse.json({ success: true, plan: finalPlan });
+
   } catch (error) {
     console.error("AI Plan Generation Error:", error);
-    return NextResponse.json({ success: false, message: 'Failed to generate plan.' }, { status: 500 });
+    const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
+    return NextResponse.json(
+      { success: false, message: 'Failed to generate plan.', errorDetail: errorMessage },
+      { status: 500 }
+    );
   }
 }
