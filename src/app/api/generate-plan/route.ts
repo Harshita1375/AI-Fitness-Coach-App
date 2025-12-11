@@ -24,45 +24,45 @@ interface PlanResponse {
 }
 
 // --- API ROUTE HANDLER ---
-// ... existing imports and interfaces ...
-
-// --- API ROUTE HANDLER ---
 export async function POST(req: Request) {
   try {
     const details: UserDetails = await req.json();
 
-    // 1. Define the Strict Output Schema
+    // 1. Define the Strict Output Schema with all formatting instructions
     const planSchema = {
       type: Type.OBJECT,
       properties: {
         workout_plan_markdown: {
           type: Type.STRING,
-          // *** FIX APPLIED HERE ***
           description: `A 7-day fitness plan using GitHub-flavored Markdown. 
             
             1. **STRUCTURE:** Group the exercises by day using Markdown level-4 headings (e.g., '#### Day 1: Full Body').
-            2. **TABLES:** Directly following each heading, output a clean Markdown table with headers: 
+            2. **TABLES (STRICT):** Directly following each heading, output a clean Markdown table. **EACH LINE MUST USE PIPE DELIMITERS (|)**.
+               The table MUST include headers and the alignment row: 
                | Exercise | Sets | Reps | Rest | 
-               and the required alignment row: 
-               | :--- | :--- | :--- | :--- |.
+               | :--- | :--- | :--- | :--- | 
             3. **LINKS:** Each exercise NAME MUST be a Markdown link using the link target '#' (e.g., [Push Ups](#)).
             
-            Do NOT include the word 'Day' inside the table rows, only in the heading.`,
+            Do NOT include the word 'Day' inside the table rows, only in the heading. Ensure every row starts and ends with a pipe.`,
         },
-        // ... diet_plan_markdown and ai_tips remain the same ...
         diet_plan_markdown: {
           type: Type.STRING,
-          description: "A 7-day diet plan using GitHub-flavored Markdown. Group meals by day using Markdown headings (e.g., '#### Day 1: Meal Plan'). Each meal name MUST be a Markdown link using the link target '#' (e.g., [Oats with Banana](#)). Table headers: | Meal | Time | Portion/Notes |",
+          description: `A 7-day diet plan using GitHub-flavored Markdown. Group meals by day using Markdown level-4 headings (e.g., '#### Day 1: Meal Plan'). 
+            The table MUST include headers and the alignment row:
+            | Meal | Time | Portion/Notes |
+            | :--- | :--- | :--- |
+            Each meal/snack name MUST be a Markdown link using the link target '#' (e.g., [Oats with Banana](#)).`,
         },
         ai_tips: {
           type: Type.STRING,
-          description: "Provide short, focused tips (maximum 3 points). Use Markdown numbered lists (1., 2., 3.) or standard bullet points (*) for clean vertical separation. Bold the main topic of each tip using double asterisks (**). Do NOT include any initial greetings or introductory phrases.",
+          // FIX: Enforcing numbered list for clean vertical spacing
+          description: "Provide short, focused tips (maximum 3 points). Use Markdown **numbered lists (1., 2., 3.)** for perfect vertical spacing. **Bold the main topic** of each tip using double asterisks (**). Do NOT include any initial greetings (like 'Hello') or introductory phrases.",
         },
       },
       required: ['workout_plan_markdown', 'diet_plan_markdown', 'ai_tips'],
     };
 
-    // ... rest of the POST function remains the same ...
+    // 2. Define the Concise Prompt
     const prompt = `
 Generate a comprehensive 7-day fitness and diet plan based on the user's details.
 
@@ -80,8 +80,8 @@ Level: ${details.fitnessLevel}
 Location: ${details.workoutLocation}
 Diet: ${details.dietaryPreferences}
 `;
-    // ... rest of the API call and JSON parsing ...
 
+    // 3. Call the AI Model with the Schema
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
@@ -91,13 +91,13 @@ Diet: ${details.dietaryPreferences}
       },
     });
 
-    // ... JSON parsing and return response ...
     const rawText = (response as any).text ?? '';
     
     if (!rawText || typeof rawText !== 'string') {
       return NextResponse.json({ success: false, message: 'Empty AI response' }, { status: 500 });
     }
 
+    // JSON.parse is safe due to responseMimeType and responseSchema
     const parsed: PlanResponse = JSON.parse(rawText);
 
     // Validation

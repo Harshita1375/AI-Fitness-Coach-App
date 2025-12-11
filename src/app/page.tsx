@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, ReactNode } from 'react';
+import React, { useState, ReactNode, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -14,7 +14,7 @@ import { Loader2, Zap, Image as ImageIcon } from 'lucide-react';
 
 interface UserDetails {
   name: string;
-  age: number | undefined;
+  age?: number;
   gender: string;
   height: string;
   weight: string;
@@ -45,38 +45,33 @@ interface PlanRendererProps {
   isGeneratingImage: boolean;
 }
 
-const PlanRenderer = ({ content, type, handleGenerateImage, isGeneratingImage }: PlanRendererProps) => {
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={{
-        a: (props: any) => {
-          const itemText = extractTextFromReactNode(props.children) || props.href || '';
-          const onClick = async (e: React.MouseEvent) => {
-            e.preventDefault();
-            if (!itemText) return;
-            // Prevent multiple image generation requests
-            if (isGeneratingImage) return; 
-            await handleGenerateImage(itemText, type);
-          };
-          return (
-            <a
-              href="#"
-              onClick={onClick}
-              className="text-indigo-400 hover:underline inline-flex items-center gap-2 disabled:opacity-50"
-              aria-label={`Generate image for ${itemText}`}
-            >
-              <span>{itemText}</span>
-              {isGeneratingImage ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4" />}
-            </a>
-          );
-        },
-      } as any}
-    >
-      {content}
-    </ReactMarkdown>
-  );
-};
+const PlanRenderer: React.FC<PlanRendererProps> = ({ content, type, handleGenerateImage, isGeneratingImage }) => (
+  <ReactMarkdown
+    remarkPlugins={[remarkGfm]}
+    components={{
+      a: ({ children, href }) => {
+        const itemText = extractTextFromReactNode(children) || href || '';
+        return (
+          <a
+            href="#"
+            onClick={async (e) => {
+              e.preventDefault();
+              if (!itemText || isGeneratingImage) return;
+              await handleGenerateImage(itemText, type);
+            }}
+            className="text-indigo-400 hover:underline inline-flex items-center gap-2 disabled:opacity-50"
+            aria-label={`Generate image for ${itemText}`}
+          >
+            <span>{itemText}</span>
+            {isGeneratingImage ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4" />}
+          </a>
+        );
+      }
+    }}
+  >
+    {content}
+  </ReactMarkdown>
+);
 
 export default function FitnessPlannerApp() {
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -140,20 +135,13 @@ export default function FitnessPlannerApp() {
       setImageLoading(false);
     }
   };
-  
-  // Close modal on Escape key press
-  React.useEffect(() => {
+
+  useEffect(() => {
     const handleKeydown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setModalImage(null);
-      }
+      if (e.key === 'Escape') setModalImage(null);
     };
-    if (modalImage) {
-      window.addEventListener('keydown', handleKeydown);
-    }
-    return () => {
-      window.removeEventListener('keydown', handleKeydown);
-    };
+    if (modalImage) window.addEventListener('keydown', handleKeydown);
+    return () => window.removeEventListener('keydown', handleKeydown);
   }, [modalImage]);
 
   return (
@@ -166,7 +154,7 @@ export default function FitnessPlannerApp() {
         <p className="text-gray-300 mt-2 text-lg">Personalized plans powered by Gemini</p>
       </motion.header>
 
-      {/* Full-width horizontal form */}
+      {/* User Form */}
       <Card className="w-full bg-gray-800 border border-gray-700 rounded-2xl p-6 mb-10">
         <CardHeader>
           <CardTitle className="text-xl text-white font-bold">Your Details</CardTitle>
@@ -176,10 +164,8 @@ export default function FitnessPlannerApp() {
           <Form {...form}>
             <form
               onSubmit={form.handleSubmit(onSubmit)}
-              // Responsive Grid Layout: 2 cols on mobile, 3 on medium, 5 on large
               className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4"
             >
-              {/* Text Inputs (Name, Age, Height, Weight) */}
               {(['name', 'age', 'height', 'weight'] as Array<keyof UserDetails>).map((key) => (
                 <FormField key={key} control={form.control} name={key} render={({ field }) => (
                   <FormItem className="w-full">
@@ -196,8 +182,7 @@ export default function FitnessPlannerApp() {
                   </FormItem>
                 )} />
               ))}
-              
-              {/* All Select Inputs (Gender, Goal, Level, Location, Diet) - Mapped */}
+
               {[
                 { name: 'gender', label: 'Gender', options: ['Male', 'Female', 'Other'] },
                 { name: 'fitnessGoal', label: 'Goal', options: ['Weight Loss', 'Muscle Gain', 'Maintenance'] },
@@ -209,12 +194,12 @@ export default function FitnessPlannerApp() {
                   <FormItem className="w-full">
                     <FormLabel className="text-gray-300">{label}</FormLabel>
                     <FormControl>
-                      <Select value={String(field.value)} onValueChange={(val) => field.onChange(val)}>
+                      <Select value={String(field.value)} onValueChange={field.onChange}>
                         <SelectTrigger className="bg-gray-700 text-white border-gray-600">
                           <SelectValue placeholder={`Select ${label}`} />
                         </SelectTrigger>
                         <SelectContent className="bg-gray-700 text-white">
-                          {options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                          {options.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </FormControl>
@@ -224,7 +209,6 @@ export default function FitnessPlannerApp() {
               ))}
 
               {/* Submit Button */}
-              {/* Span across all columns to ensure button is full-width below the inputs */}
               <div className="col-span-2 md:col-span-3 lg:col-span-5 w-full">
                 <Button
                   type="submit"
@@ -250,7 +234,9 @@ export default function FitnessPlannerApp() {
                 <CardTitle className="text-indigo-400">AI Tips & Motivation</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="whitespace-pre-line">{plan.ai_tips}</p>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {plan.ai_tips}
+                </ReactMarkdown>
               </CardContent>
             </Card>
 
