@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, ReactNode, useEffect } from 'react';
+import React, { useState, ReactNode, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -8,13 +8,13 @@ import { motion } from 'framer-motion';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel } from "@/components/ui/form";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Loader2, Zap, Image as ImageIcon } from 'lucide-react';
+import { Loader2, Zap, Image as ImageIcon, Volume2 } from 'lucide-react';
 
 interface UserDetails {
   name: string;
-  age?: number;
+  age: number | undefined;
   gender: string;
   height: string;
   weight: string;
@@ -30,7 +30,6 @@ interface Plan {
   ai_tips: string;
 }
 
-// Extract text from ReactNode children
 const extractTextFromReactNode = (children: ReactNode): string => {
   if (!children) return '';
   if (typeof children === 'string') return children.trim();
@@ -45,32 +44,38 @@ interface PlanRendererProps {
   isGeneratingImage: boolean;
 }
 
-const PlanRenderer: React.FC<PlanRendererProps> = ({ content, type, handleGenerateImage, isGeneratingImage }) => (
-  <ReactMarkdown
-    remarkPlugins={[remarkGfm]}
-    components={{
-      a: ({ children, href }) => {
-        const itemText = extractTextFromReactNode(children) || href || '';
-        return (
-          <a
-            href="#"
-            onClick={async (e) => {
-              e.preventDefault();
-              if (!itemText || isGeneratingImage) return;
-              await handleGenerateImage(itemText, type);
-            }}
-            className="text-indigo-400 hover:underline inline-flex items-center gap-2 disabled:opacity-50"
-            aria-label={`Generate image for ${itemText}`}
-          >
-            <span>{itemText}</span>
-            {isGeneratingImage ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4" />}
-          </a>
-        );
-      }
-    }}
-  >
-    {content}
-  </ReactMarkdown>
+const PlanRenderer = ({ content, type, handleGenerateImage, isGeneratingImage }: PlanRendererProps) => (
+  <div className="prose prose-invert max-w-none text-white">
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        a: (props: any) => {
+          const itemText = extractTextFromReactNode(props.children) || props.href || '';
+          const onClick = async (e: React.MouseEvent) => {
+            e.preventDefault();
+            if (!itemText || isGeneratingImage) return;
+            await handleGenerateImage(itemText, type);
+          };
+          return (
+            <a
+              href="#"
+              onClick={onClick}
+              className="text-indigo-400 hover:underline inline-flex items-center gap-2"
+            >
+              <span>{itemText}</span>
+              {isGeneratingImage ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ImageIcon className="h-4 w-4" />
+              )}
+            </a>
+          );
+        }
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  </div>
 );
 
 export default function FitnessPlannerApp() {
@@ -78,6 +83,8 @@ export default function FitnessPlannerApp() {
   const [isLoading, setIsLoading] = useState(false);
   const [modalImage, setModalImage] = useState<string | null>(null);
   const [imageLoading, setImageLoading] = useState(false);
+
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const form = useForm<UserDetails>({
     defaultValues: {
@@ -91,8 +98,42 @@ export default function FitnessPlannerApp() {
       workoutLocation: '',
       dietaryPreferences: '',
     },
-    mode: 'onSubmit',
   });
+
+  // 🔊 PLAY AUDIO
+  const handleReadAloud = async (text: string) => {
+    try {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+
+      const res = await fetch("/api/read-plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+
+      if (!res.ok) throw new Error("Audio generation failed");
+
+      const audioBlob = await res.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+
+      audioRef.current = new Audio(audioUrl);
+      audioRef.current.play();
+    } catch (err) {
+      console.error(err);
+      alert("Failed to generate audio.");
+    }
+  };
+
+  // ⛔ STOP AUDIO
+  const handleStopAudio = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+  };
 
   const onSubmit = async (data: UserDetails) => {
     setIsLoading(true);
@@ -103,13 +144,11 @@ export default function FitnessPlannerApp() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error('Plan generation failed');
+
       const json = await res.json();
-      if (!json?.plan) throw new Error('Bad response from server');
-      setPlan(json.plan as Plan);
+      if (json?.plan) setPlan(json.plan);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
-      console.error(err);
       alert('Failed to generate plan.');
     } finally {
       setIsLoading(false);
@@ -124,41 +163,35 @@ export default function FitnessPlannerApp() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ item, type }),
       });
-      if (!res.ok) throw new Error('Image generation failed');
+
       const data = await res.json();
-      if (!data?.imageUrl) throw new Error('No image returned');
-      setModalImage(data.imageUrl);
+      if (data?.imageUrl) setModalImage(data.imageUrl);
     } catch (err) {
-      console.error(err);
       alert('Failed to generate image.');
     } finally {
       setImageLoading(false);
     }
   };
 
-  useEffect(() => {
-    const handleKeydown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setModalImage(null);
-    };
-    if (modalImage) window.addEventListener('keydown', handleKeydown);
-    return () => window.removeEventListener('keydown', handleKeydown);
-  }, [modalImage]);
-
   return (
     <div className="min-h-screen bg-gray-900 text-white p-6 md:p-10">
-      {/* Header */}
-      <motion.header initial={{ y: -50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="text-center mb-8">
-        <h1 className="text-5xl font-extrabold text-indigo-400 flex justify-center items-center gap-3">
+
+      {/* HEADER */}
+      <motion.header
+        initial={{ y: -50, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        className="text-center mb-8"
+      >
+        <h1 className="text-5xl font-extrabold text-indigo-400">
           ⚡ AI Fitness Coach
         </h1>
         <p className="text-gray-300 mt-2 text-lg">Personalized plans powered by Gemini</p>
       </motion.header>
 
-      {/* User Form */}
-      <Card className="w-full bg-gray-800 border border-gray-700 rounded-2xl p-6 mb-10">
+      {/* USER FORM */}
+      <Card className="bg-gray-800 p-6 mb-10 border border-gray-700 rounded-2xl">
         <CardHeader>
-          <CardTitle className="text-xl text-white font-bold">Your Details</CardTitle>
-          <p className="text-gray-400 text-sm">Fill out your details to get your personalized plan</p>
+          <CardTitle className="text-xl">Your Details</CardTitle>
         </CardHeader>
         <CardContent>
           <Form {...form}>
@@ -167,20 +200,19 @@ export default function FitnessPlannerApp() {
               className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4"
             >
               {(['name', 'age', 'height', 'weight'] as Array<keyof UserDetails>).map((key) => (
-                <FormField key={key} control={form.control} name={key} render={({ field }) => (
-                  <FormItem className="w-full">
-                    <FormLabel className="text-gray-300">{key.charAt(0).toUpperCase() + key.slice(1)}</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        type={key === 'age' ? 'number' : 'text'}
-                        className="bg-gray-700 text-white border-gray-600 placeholder-gray-400"
-                        required={key !== 'name'}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
+                <FormField
+                  key={key}
+                  control={form.control}
+                  name={key}
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{key.toUpperCase()}</FormLabel>
+                      <FormControl>
+                        <Input {...field} type={key === 'age' ? 'number' : 'text'} className="bg-gray-700 text-white"/>
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
               ))}
 
               {[
@@ -190,33 +222,32 @@ export default function FitnessPlannerApp() {
                 { name: 'workoutLocation', label: 'Location', options: ['Home', 'Gym', 'Outdoor'] },
                 { name: 'dietaryPreferences', label: 'Diet', options: ['Veg', 'Non-Veg', 'Vegan', 'Keto'] },
               ].map(({ name, label, options }) => (
-                <FormField key={name} control={form.control} name={name as keyof UserDetails} render={({ field }) => (
-                  <FormItem className="w-full">
-                    <FormLabel className="text-gray-300">{label}</FormLabel>
-                    <FormControl>
+                <FormField
+                  key={name}
+                  control={form.control}
+                  name={name as keyof UserDetails}
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{label}</FormLabel>
                       <Select value={String(field.value)} onValueChange={field.onChange}>
-                        <SelectTrigger className="bg-gray-700 text-white border-gray-600">
-                          <SelectValue placeholder={`Select ${label}`} />
+                        <SelectTrigger className="bg-gray-700 text-white">
+                          <SelectValue placeholder={label} />
                         </SelectTrigger>
-                        <SelectContent className="bg-gray-700 text-white">
-                          {options.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                        <SelectContent className="text-white bg-gray-800">
+                          {options.map((o) => (
+                            <SelectItem key={o} value={o} className="text-white">{o}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
+                    </FormItem>
+                  )}
+                />
               ))}
 
-              {/* Submit Button */}
-              <div className="col-span-2 md:col-span-3 lg:col-span-5 w-full">
-                <Button
-                  type="submit"
-                  className="w-full mt-2 bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center gap-2"
-                  disabled={isLoading}
-                >
-                  {isLoading ? <Loader2 className="animate-spin h-4 w-4" /> : <Zap className="h-4 w-4" />}
-                  {isLoading ? 'Generating...' : 'Generate Plan'}
+              <div className="col-span-full">
+                <Button className="w-full bg-indigo-600" disabled={isLoading}>
+                  {isLoading ? <Loader2 className="animate-spin h-4 w-4"/> : <Zap className="h-4 w-4"/>}
+                  Generate Plan
                 </Button>
               </div>
             </form>
@@ -224,78 +255,97 @@ export default function FitnessPlannerApp() {
         </CardContent>
       </Card>
 
-      {/* AI Response */}
-      <div className="space-y-6">
-        {plan ? (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
-            {/* AI Tips */}
-            <Card className="mb-6 border-l-4 border-indigo-500 shadow-lg rounded-xl bg-gray-800 text-white">
-              <CardHeader>
-                <CardTitle className="text-indigo-400">AI Tips & Motivation</CardTitle>
-              </CardHeader>
-              <CardContent>
+      {/* DISPLAY PLAN */}
+      {plan && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+
+          {/* AI Tips */}
+          <Card className="bg-gray-800 mb-6 border-l-4 border-indigo-500">
+            <CardHeader className="flex justify-between items-center">
+              <CardTitle className="text-indigo-400">AI Tips & Motivation</CardTitle>
+              <div className="flex gap-2">
+                <Button onClick={() => handleReadAloud(plan.ai_tips)} className="bg-indigo-600">
+                  <Volume2 className="h-4 w-4 mr-2" /> Read
+                </Button>
+                <Button onClick={handleStopAudio} className="bg-red-600">
+                  Stop
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="text-white">
+              <div className="prose prose-invert max-w-none text-white">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                   {plan.ai_tips}
                 </ReactMarkdown>
-              </CardContent>
-            </Card>
+              </div>
+            </CardContent>
+          </Card>
 
-            {/* Workout Plan */}
-            <Card className="mb-6 shadow-lg rounded-xl bg-gray-800 text-white">
-              <CardHeader>
-                <CardTitle>🏋️ Workout Plan</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="mb-3 text-sm text-gray-400">Click any exercise to generate an image</div>
-                <PlanRenderer
-                  content={plan.workout_plan_markdown}
-                  type="workout"
-                  handleGenerateImage={handleGenerateImage}
-                  isGeneratingImage={imageLoading}
-                />
-              </CardContent>
-            </Card>
+          {/* Workout Plan */}
+          <Card className="bg-gray-800 mb-6">
+            <CardHeader className="flex justify-between items-center">
+              <CardTitle className="text-white">🏋️ Workout Plan</CardTitle>
+              <div className="flex gap-2">
+                <Button onClick={() => handleReadAloud(plan.workout_plan_markdown)} className="bg-indigo-600">
+                  <Volume2 className="h-4 w-4 mr-2" /> Read
+                </Button>
+                <Button onClick={handleStopAudio} className="bg-red-600">
+                  Stop
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="text-white">
+              <PlanRenderer
+                content={plan.workout_plan_markdown}
+                type="workout"
+                handleGenerateImage={handleGenerateImage}
+                isGeneratingImage={imageLoading}
+              />
+            </CardContent>
+          </Card>
 
-            {/* Diet Plan */}
-            <Card className="shadow-lg rounded-xl bg-gray-800 text-white">
-              <CardHeader>
-                <CardTitle>🥗 Diet Plan</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="mb-3 text-sm text-gray-400">Click any meal/snack to generate a photo</div>
-                <PlanRenderer
-                  content={plan.diet_plan_markdown}
-                  type="food"
-                  handleGenerateImage={handleGenerateImage}
-                  isGeneratingImage={imageLoading}
-                />
-              </CardContent>
-            </Card>
-          </motion.div>
-        ) : (
-          <div className="flex items-center justify-center min-h-[50vh] text-gray-400 text-lg">
-            Fill out your details to generate your personalized plan!
-          </div>
-        )}
-      </div>
+          {/* Diet Plan */}
+          <Card className="bg-gray-800">
+            <CardHeader className="flex justify-between items-center">
+              <CardTitle className="text-white">🥗 Diet Plan</CardTitle>
+              <div className="flex gap-2">
+                <Button onClick={() => handleReadAloud(plan.diet_plan_markdown)} className="bg-indigo-600">
+                  <Volume2 className="h-4 w-4 mr-2" /> Read
+                </Button>
+                <Button onClick={handleStopAudio} className="bg-red-600">
+                  Stop
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="text-white">
+              <PlanRenderer
+                content={plan.diet_plan_markdown}
+                type="food"
+                handleGenerateImage={handleGenerateImage}
+                isGeneratingImage={imageLoading}
+              />
+            </CardContent>
+          </Card>
 
-      {/* Image Modal */}
+        </motion.div>
+      )}
+
+      {/* IMAGE MODAL */}
       {modalImage && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          className="fixed inset-0 flex items-center justify-center bg-black/80 z-50"
           onClick={() => setModalImage(null)}
         >
           <motion.img
+            src={modalImage}
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            transition={{ type: "spring", stiffness: 300, damping: 30 }}
-            src={modalImage}
-            alt="Generated"
-            className="max-h-[80vh] max-w-[80vw] rounded-2xl shadow-xl cursor-pointer"
+            className="rounded-2xl max-h-[80vh] max-w-[80vw]"
             onClick={(e) => e.stopPropagation()}
           />
         </div>
       )}
+
     </div>
   );
 }

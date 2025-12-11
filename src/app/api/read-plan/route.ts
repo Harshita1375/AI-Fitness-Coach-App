@@ -1,44 +1,55 @@
-import { ElevenLabsClient } from "elevenlabs";
 import { NextResponse } from "next/server";
-
-const voiceId = process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4azwk8vH3dYJ";
-
-const elevenlabs = new ElevenLabsClient({
-  apiKey: process.env.ELEVENLABS_API_KEY
-});
+import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 
 export async function POST(req: Request) {
   try {
     const { text } = await req.json();
 
     if (!text) {
-      return NextResponse.json({ message: "No text provided" }, { status: 400 });
+      return NextResponse.json(
+        { error: "No text provided" },
+        { status: 400 }
+      );
     }
 
-    const audioStream = await elevenlabs.textToSpeech.convert(
-      voiceId, 
-      {
-        text,
-        model_id: "eleven_multilingual_v2",
-      }, 
-      {} 
+    const client = new ElevenLabsClient({
+      apiKey: process.env.ELEVENLABS_API_KEY!,
+    });
+
+    const voiceId =
+      process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4azwk8vH3dYJ";
+
+    // Generate audio
+    const audio = await client.textToSpeech.convert(voiceId, {
+      text,
+      voice_settings: {
+        stability: 0.5,
+        similarity_boost: 0.8,
+      },
+      model_id: "eleven_multilingual_v2",
+    });
+
+    // Convert stream to buffer
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of audio) {
+      chunks.push(chunk);
+    }
+
+    const audioBuffer = Buffer.concat(
+      chunks.map((c) => Buffer.from(c))
     );
-
-    const chunks: Buffer[] = [];
-    for await (const chunk of audioStream) {
-      chunks.push(Buffer.from(chunk));
-    }
-
-    const audioBuffer = Buffer.concat(chunks);
 
     return new Response(audioBuffer, {
       headers: {
         "Content-Type": "audio/mpeg",
-        "Content-Disposition": 'inline; filename="speech.mp3"'
-      }
+        "Content-Disposition": `inline; filename="speech.mp3"`,
+      },
     });
   } catch (error) {
-    console.error("TTS Error:", error);
-    return NextResponse.json({ message: "Failed to generate audio" }, { status: 500 });
+    console.error("TTS ERROR:", error);
+    return NextResponse.json(
+      { error: "Failed to generate audio" },
+      { status: 500 }
+    );
   }
 }
